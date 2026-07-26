@@ -8,6 +8,7 @@ without introducing import cycles.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -19,14 +20,21 @@ class SuffixMarketSpec:
     market: str
     suffixes: tuple[str, ...]
     digit_lengths: tuple[int, ...]
+    # TWSE actively-managed ETFs use a 5-digit code plus a trailing letter
+    # (e.g. 00981A), distinct from the plain-digit codes covered by
+    # digit_lengths. Only "tw" sets this.
+    active_etf_letter_suffix: bool = False
 
+
+# 5 digits + 1 uppercase letter, e.g. 00981A (active ETF codes approved since 2023).
+_TW_ACTIVE_ETF_BASE_PATTERN = re.compile(r'^\d{5}[A-Z]$')
 
 _SUFFIX_MARKET_SPECS: tuple[SuffixMarketSpec, ...] = (
     SuffixMarketSpec("jp", ("T",), (4, 5)),
     SuffixMarketSpec("kr", ("KS", "KQ"), (6,)),
     # Taiwan support mirrors the same suffix-only pattern; keep it here so the
     # shared helpers stay complete for all yfinance-only offshore markets.
-    SuffixMarketSpec("tw", ("TW", "TWO"), (4, 5, 6)),
+    SuffixMarketSpec("tw", ("TW", "TWO"), (4, 5, 6), active_etf_letter_suffix=True),
 )
 
 _MARKET_TO_SPEC = {spec.market: spec for spec in _SUFFIX_MARKET_SPECS}
@@ -59,9 +67,11 @@ def get_suffix_market(stock_code: str) -> Optional[str]:
     spec = _SUFFIX_TO_SPEC.get(suffix)
     if spec is None:
         return None
-    if not (base.isdigit() and len(base) in spec.digit_lengths):
-        return None
-    return spec.market
+    if base.isdigit() and len(base) in spec.digit_lengths:
+        return spec.market
+    if spec.active_etf_letter_suffix and _TW_ACTIVE_ETF_BASE_PATTERN.match(base):
+        return spec.market
+    return None
 
 
 def is_suffix_market_symbol(stock_code: str, market: Optional[str] = None) -> bool:
